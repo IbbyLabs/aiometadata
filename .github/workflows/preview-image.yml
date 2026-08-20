@@ -1,0 +1,54 @@
+# Builds a preview image from a branch so a reviewer can run a change rather
+# than read it.
+#
+# This lives on the fork's default branch only. Two reasons: a PR branch
+# carrying it would put our registry into someone else's repository, and the
+# upstream testing workflow cannot run here anyway — it names the image
+# ghcr.io/${{ github.repository }}, which is IbbyLabs/aiometadata on this fork,
+# and GHCR rejects an uppercase repository name.
+#
+# amd64 only: this is something to pull and try, not a release.
+name: Preview image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch to build
+        required: true
+      tag:
+        description: Image tag to publish
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Lowercase the image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/aiometadata" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ inputs.tag }}
+          cache-from: type=gha,scope=preview
+          cache-to: type=gha,mode=max,scope=preview
+
+      - name: Name what was published
+        run: echo "published ${{ env.IMAGE }}:${{ inputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
